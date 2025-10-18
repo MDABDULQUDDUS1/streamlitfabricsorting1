@@ -9,10 +9,13 @@ import torchvision.transforms as transforms
 from PIL import Image
 import numpy as np
 import os
+import gdown
 from model_definition import load_model
 
 # Configuration
 MODEL_PATH = "final_customized_densenet121_model_no_leakage.pth"
+MODEL_ID = "1avenYXReujTHwhIZpvqL2XESYWBaYzv7"
+MODEL_URL = f"https://drive.google.com/uc?id={MODEL_ID}"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 CLASS_NAMES = ['Knit', 'Woven']
@@ -317,3 +320,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
