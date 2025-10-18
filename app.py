@@ -77,16 +77,28 @@ st.markdown("""
 
 def download_model_if_needed():
     if not os.path.exists(MODEL_PATH):
-        st.write("Model file not found locally. Downloading from Google Drive ...")
-        success = gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
-        st.write(f"Download returned: {success}")
-        if not success or not os.path.exists(MODEL_PATH):
-            st.error("Model download failed or file missing after download.")
-        else:
-            st.write("Model downloaded successfully!")
-    else:
-        st.write("Model file found locally.")
+        st.write("📦 Model file not found locally. Downloading from Google Drive ...")
 
+        try:
+            # Use fuzzy=True to handle Drive confirmation pages
+            success = gdown.download(
+                "https://drive.google.com/uc?id=1avenYXReujTHwhIZpvqL2XESYWBaYzv7",
+                MODEL_PATH,
+                quiet=False,
+                fuzzy=True
+            )
+            st.write(f"Download returned: {success}")
+        except Exception as e:
+            st.error(f"❌ Error during download: {e}")
+            success = None
+
+        if not success or not os.path.exists(MODEL_PATH):
+            st.error("❌ Model download failed or file missing after download.")
+            st.stop()
+        else:
+            st.success("✅ Model downloaded successfully!")
+    else:
+        st.info("✅ Model file found locally.")
 @st.cache_resource
 def load_classification_model():
     """Load the trained model (cached)"""
@@ -283,3 +295,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
