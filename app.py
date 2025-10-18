@@ -78,8 +78,12 @@ st.markdown("""
 def download_model_if_needed():
     if not os.path.exists(MODEL_PATH):
         st.write("Model file not found locally. Downloading from Google Drive ...")
-        gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
-        st.write("Model downloaded successfully!")
+        success = gdown.download(MODEL_URL, MODEL_PATH, quiet=False)
+        st.write(f"Download returned: {success}")
+        if not success or not os.path.exists(MODEL_PATH):
+            st.error("Model download failed or file missing after download.")
+        else:
+            st.write("Model downloaded successfully!")
     else:
         st.write("Model file found locally.")
 
