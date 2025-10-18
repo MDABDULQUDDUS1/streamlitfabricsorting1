@@ -7,15 +7,15 @@ import streamlit as st
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
-import numpy as np
 import os
-import gdown
 from model_definition import load_model
+import requests
 
-# Configuration
+# Configuration: split model parts
+MODEL_PART1_URL = "https://github.com/MDABDULQUDDUS1/streamlitfabricsorting1/raw/main/densenet121_part1.pth"
+MODEL_PART2_URL = "https://github.com/MDABDULQUDDUS1/streamlitfabricsorting1/raw/main/densenet121_part2.pth"
 MODEL_PATH = "final_customized_densenet121_model_no_leakage.pth"
-MODEL_ID = "1avenYXReujTHwhIZpvqL2XESYWBaYzv7"
-MODEL_URL = f"https://drive.google.com/uc?id={MODEL_ID}"
+
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 CLASS_NAMES = ['Knit', 'Woven']
@@ -31,74 +31,53 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
     <style>
-    .main-header {
-        font-size: 3rem;
-        color: #1f77b4;
-        text-align: center;
-        margin-bottom: 1rem;
-    }
-    .sub-header {
-        font-size: 1.2rem;
-        color: #666;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .prediction-box {
-        padding: 2rem;
-        border-radius: 10px;
-        margin: 1rem 0;
-        text-align: center;
-    }
-    .knit-box {
-        background-color: #e3f2fd;
-        border: 3px solid #2196f3;
-    }
-    .woven-box {
-        background-color: #fff3e0;
-        border: 3px solid #ff9800;
-    }
-    .prediction-label {
-        font-size: 2.5rem;
-        font-weight: bold;
-        margin-bottom: 0.5rem;
-    }
-    .confidence-label {
-        font-size: 1.5rem;
-        color: #555;
-    }
-    .info-box {
-        background-color: #f5f5f5;
-        padding: 1rem;
-        border-radius: 5px;
-        margin: 1rem 0;
-    }
+    .main-header { font-size: 3rem; color: #1f77b4; text-align: center; margin-bottom: 1rem; }
+    .sub-header { font-size: 1.2rem; color: #666; text-align: center; margin-bottom: 2rem; }
+    .prediction-box { padding: 2rem; border-radius: 10px; margin: 1rem 0; text-align: center; }
+    .knit-box { background-color: #e3f2fd; border: 3px solid #2196f3; }
+    .woven-box { background-color: #fff3e0; border: 3px solid #ff9800; }
+    .prediction-label { font-size: 2.5rem; font-weight: bold; margin-bottom: 0.5rem; }
+    .confidence-label { font-size: 1.5rem; color: #555; }
+    .info-box { background-color: #f5f5f5; padding: 1rem; border-radius: 5px; margin: 1rem 0; }
     </style>
 """, unsafe_allow_html=True)
 
 def download_model_if_needed():
     if not os.path.exists(MODEL_PATH):
-        st.write("📦 Model file not found locally. Downloading from Google Drive ...")
+        st.write("📦 Model file not found locally. Downloading from GitHub ...")
 
         try:
-            # Use fuzzy=True to handle Drive confirmation pages
-            success = gdown.download(
-                "https://drive.google.com/uc?id=1avenYXReujTHwhIZpvqL2XESYWBaYzv7",
-                MODEL_PATH,
-                quiet=False,
-                fuzzy=True
-            )
-            st.write(f"Download returned: {success}")
-        except Exception as e:
-            st.error(f"❌ Error during download: {e}")
-            success = None
+            # Download part1
+            r1 = requests.get(MODEL_PART1_URL)
+            with open("part1.pth", "wb") as f:
+                f.write(r1.content)
+            
+            # Download part2
+            r2 = requests.get(MODEL_PART2_URL)
+            with open("part2.pth", "wb") as f:
+                f.write(r2.content)
 
-        if not success or not os.path.exists(MODEL_PATH):
-            st.error("❌ Model download failed or file missing after download.")
+            st.write("✅ Both parts downloaded, now merging ...")
+
+            # Load and merge
+            part1 = torch.load("part1.pth", map_location="cpu")
+            part2 = torch.load("part2.pth", map_location="cpu")
+
+            merged_state_dict = {**part1, **part2}
+            torch.save(merged_state_dict, MODEL_PATH)
+
+            st.success(f"✅ Model merged and saved as {MODEL_PATH}")
+
+            # Clean up
+            os.remove("part1.pth")
+            os.remove("part2.pth")
+
+        except Exception as e:
+            st.error(f"❌ Error downloading or merging model parts: {e}")
             st.stop()
-        else:
-            st.success("✅ Model downloaded successfully!")
     else:
         st.info("✅ Model file found locally.")
+
 @st.cache_resource
 def load_classification_model():
     """Load the trained model (cached)"""
@@ -120,7 +99,8 @@ def get_image_transforms():
     return transforms.Compose([
         transforms.Resize((IMG_HEIGHT, IMG_WIDTH)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             std=[0.229, 0.224, 0.225])
     ])
 
 def predict_fabric(image, model, device, transform):
@@ -201,7 +181,6 @@ def main():
         image = Image.open(uploaded_file)
 
         col1, col2 = st.columns(2)
-
         with col1:
             st.subheader("📷 Uploaded Image")
             st.image(image, use_container_width=True)
@@ -216,10 +195,8 @@ def main():
 
         with col2:
             st.subheader("🎯 Prediction Results")
-
             box_class = "knit-box" if predicted_class == "Knit" else "woven-box"
             emoji = "🧶" if predicted_class == "Knit" else "🪡"
-
             st.markdown(f"""
                 <div class="prediction-box {box_class}">
                     <div class="prediction-label">{emoji} {predicted_class}</div>
@@ -229,7 +206,6 @@ def main():
 
         st.markdown("---")
         st.subheader("📊 Probability Breakdown")
-
         col_knit, col_woven = st.columns(2)
         with col_knit:
             st.metric(label="🧶 Knit", value=f"{probabilities['Knit']:.2f}%", delta=None)
@@ -252,47 +228,8 @@ def main():
             </div>
         """, unsafe_allow_html=True)
 
-        if confidence >= 90:
-            st.success("🎯 **Very High Confidence** - The model is very certain about this prediction.")
-        elif confidence >= 75:
-            st.info("👍 **High Confidence** - The model is quite confident about this prediction.")
-        elif confidence >= 60:
-            st.warning("⚠️ **Moderate Confidence** - The model is somewhat uncertain. Consider checking the image quality.")
-        else:
-            st.error("❓ **Low Confidence** - The model is uncertain. The image may be unclear or ambiguous.")
-
     else:
         st.info("👆 Please upload a fabric image to get started")
-        st.markdown("---")
-        st.subheader("📝 Example Classifications")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("""
-                **🧶 Knit Fabrics:**
-                - T-shirts
-                - Sweaters
-                - Socks
-                - Jersey fabric
-                - Interlooped yarns
-            """)
-        with col2:
-            st.markdown("""
-                **🪡 Woven Fabrics:**
-                - Denim
-                - Canvas
-                - Dress shirts
-                - Bed sheets
-                - Interlaced warp & weft
-            """)
-
-    st.markdown("---")
-    st.markdown("""
-        <div style="text-align: center; color: #888; font-size: 0.9rem;">
-            <p>Fabric Classification System v1.0 | Powered by CustomizedDenseNet121</p>
-            <p>🧵 Knit vs. Woven Classification using Deep Learning</p>
-        </div>
-    """, unsafe_allow_html=True)
 
 if __name__ == "__main__":
     main()
-
