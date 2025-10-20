@@ -7,10 +7,12 @@ import streamlit as st
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
+import numpy as np
 import os
 from model_definition import load_model
 
 # Configuration
+MODEL_PATH = "final_customized_densenet121_model_no_leakage.pth"
 IMG_HEIGHT = 224
 IMG_WIDTH = 224
 CLASS_NAMES = ['Knit', 'Woven']
@@ -76,8 +78,14 @@ def load_classification_model():
     """Load the trained model (cached)"""
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    # Check if model file exists
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"❌ Model file not found: {MODEL_PATH}")
+        st.info("Please ensure the model file 'final_customized_densenet121_model_no_leakage.pth' is in the same directory as this app.")
+        st.stop()
+
     try:
-        model = load_model(model_dir=".", device=device)
+        model = load_model(MODEL_PATH, device=device)
         return model, device
     except Exception as e:
         st.error(f"❌ Error loading model: {str(e)}")
@@ -89,28 +97,43 @@ def get_image_transforms():
     return transforms.Compose([
         transforms.Resize((IMG_HEIGHT, IMG_WIDTH)),
         transforms.ToTensor(),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                             std=[0.229, 0.224, 0.225])
+        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
 
 def predict_fabric(image, model, device, transform):
     """
     Predict fabric type from image
-    Returns: predicted_class, confidence_percent, probabilities
+
+    Args:
+        image: PIL Image
+        model: Trained model
+        device: torch device
+        transform: Image transforms
+
+    Returns:
+        predicted_class: 'Knit' or 'Woven'
+        confidence: Confidence score (0-100)
+        probabilities: Dictionary with probabilities for each class
     """
+    # Convert to RGB if needed
     if image.mode != 'RGB':
         image = image.convert('RGB')
 
+    # Apply transforms
     image_tensor = transform(image).unsqueeze(0).to(device)
 
+    # Make prediction
     with torch.no_grad():
         outputs = model(image_tensor)
         probabilities = torch.nn.functional.softmax(outputs, dim=1)
         confidence, predicted = torch.max(probabilities, 1)
 
+    # Get results
     predicted_class = CLASS_NAMES[predicted.item()]
     confidence_percent = confidence.item() * 100
+
+    # Get probabilities for both classes
     probs_dict = {
         CLASS_NAMES[i]: probabilities[0][i].item() * 100
         for i in range(len(CLASS_NAMES))
@@ -136,25 +159,25 @@ def main():
 
         st.header("📊 Model Information")
         st.write("""
-        - **Architecture**: DenseNet121  
-        - **Fine-tuning**: Progressive Unfreezing  
-        - **Input Size**: 224x224 pixels  
+        - **Architecture**: DenseNet121
+        - **Fine-tuning**: Progressive Unfreezing
+        - **Input Size**: 224x224 pixels
         - **Classes**: Knit, Woven
         """)
 
         st.header("🔍 How to Use")
         st.write("""
-        1. Upload a fabric image (JPG, JPEG, or PNG)  
-        2. The model will analyze the image  
-        3. View the prediction and confidence score  
+        1. Upload a fabric image (JPG, JPEG, or PNG)
+        2. The model will analyze the image
+        3. View the prediction and confidence score
         4. Check the probability breakdown
         """)
 
         st.header("💡 Tips")
         st.write("""
-        - Use clear, well-lit images  
-        - Ensure fabric texture is visible  
-        - Crop to focus on the fabric  
+        - Use clear, well-lit images
+        - Ensure fabric texture is visible
+        - Crop to focus on the fabric
         - Higher confidence = more reliable prediction
         """)
 
@@ -176,15 +199,17 @@ def main():
     )
 
     if uploaded_file is not None:
+        # Display uploaded image
         image = Image.open(uploaded_file)
 
         col1, col2 = st.columns(2)
+
         with col1:
             st.subheader("📷 Uploaded Image")
             st.image(image, use_container_width=True)
             st.caption(f"Size: {image.size[0]}x{image.size[1]} pixels")
 
-        # Prediction
+        # Make prediction
         with st.spinner("🔍 Analyzing fabric..."):
             predicted_class, confidence, probabilities = predict_fabric(
                 image, model, device, transform
@@ -192,6 +217,8 @@ def main():
 
         with col2:
             st.subheader("🎯 Prediction Results")
+
+            # Display prediction with styling
             box_class = "knit-box" if predicted_class == "Knit" else "woven-box"
             emoji = "🧶" if predicted_class == "Knit" else "🪡"
 
@@ -207,14 +234,24 @@ def main():
         st.subheader("📊 Probability Breakdown")
 
         col_knit, col_woven = st.columns(2)
+
         with col_knit:
-            st.metric("🧶 Knit", f"{probabilities['Knit']:.2f}%")
+            st.metric(
+                label="🧶 Knit",
+                value=f"{probabilities['Knit']:.2f}%",
+                delta=None
+            )
             st.progress(probabilities['Knit'] / 100)
+
         with col_woven:
-            st.metric("🪡 Woven", f"{probabilities['Woven']:.2f}%")
+            st.metric(
+                label="🪡 Woven",
+                value=f"{probabilities['Woven']:.2f}%",
+                delta=None
+            )
             st.progress(probabilities['Woven'] / 100)
 
-        # Technical details
+        # Additional information
         st.markdown("---")
         st.markdown(f"""
             <div class="info-box">
@@ -229,7 +266,7 @@ def main():
             </div>
         """, unsafe_allow_html=True)
 
-        # Confidence messages
+        # Confidence interpretation
         if confidence >= 90:
             st.success("🎯 **Very High Confidence** - The model is very certain about this prediction.")
         elif confidence >= 75:
@@ -238,12 +275,16 @@ def main():
             st.warning("⚠️ **Moderate Confidence** - The model is somewhat uncertain. Consider checking the image quality.")
         else:
             st.error("❓ **Low Confidence** - The model is uncertain. The image may be unclear or ambiguous.")
+
     else:
+        # Instructions when no file is uploaded
         st.info("👆 Please upload a fabric image to get started")
+
         st.markdown("---")
         st.subheader("📝 Example Classifications")
 
         col1, col2 = st.columns(2)
+
         with col1:
             st.markdown("""
                 **🧶 Knit Fabrics:**
@@ -253,6 +294,7 @@ def main():
                 - Jersey fabric
                 - Interlooped yarns
             """)
+
         with col2:
             st.markdown("""
                 **🪡 Woven Fabrics:**
